@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: the-app-deployment
+  labels:
+    app: the-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: the-app
+  template:
+    metadata:
+      labels:
+        app: the-app
+    spec:
+      containers:
+      - name: the-app
+        image: ctatisetti/sample-python-pgdb-app:latest # Replace with your public image
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DB_CREDS
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: tf-outputs.json
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-service
+spec:
+  selector:
+    app: the-app
+  ports:
+  - port: 8080          # Exposed Service port
+    targetPort: 5000    # Container's listening port
+    protocol: TCP
+  type: NodePort
+

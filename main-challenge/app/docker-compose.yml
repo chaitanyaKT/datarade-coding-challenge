@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags:
+        - ctatisetti/sample-python-pgdb-app:5.0
+        - ctatisetti/sample-python-pgdb-app:latest
+    image: "ctatisetti/sample-python-pgdb-app:latest"
+    ports:
+      - "5000:5000"

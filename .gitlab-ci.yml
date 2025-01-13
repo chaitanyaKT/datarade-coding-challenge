@@ -1,0 +1,64 @@
+stages:
+  - collect-info
+  - deploy-infra
+  - deploy-app
+
+variables:
+  TF_VAR_ENV: "production" # Example environment variable for Terraform
+
+# Stage 0: Collect info
+collect-info:
+  stage: collect-info
+  tags:
+    - master-runner
+  script:
+    - echo export TF_VAR_GITLAB_URL=$(sudo grep -E "^external_url" /etc/gitlab/gitlab.rb | cut -d "'" -f2) > .env
+    - echo export TF_VAR_REGISTRATION_TOKEN=$(sudo gitlab-rails runner "puts Gitlab::CurrentSettings.runners_registration_token") >> .env
+  artifacts:
+    paths:
+      - .env
+    expire_in: 1 hour
+  
+# Stage 1: Deploy Infrastructure
+deploy-infra:
+  stage: deploy-infra
+  tags:
+    - master-runner
+  dependencies:
+    - collect-info
+  script:
+    - source .env
+    - cd main-challenge/Terraform
+    - terraform init
+    - terraform plan -out=tfplan
+    - terraform apply -auto-approve tfplan
+    - terraform output -json > tf-outputs.json
+  artifacts:
+    paths:
+      - main-challenge/Terraform/tf-outputs.json
+    expire_in: 1 hour
+  only:
+    - main
+
+# Stage 2: Get Secret from AWS
+deploy-app:
+  stage: deploy-app
+  tags:
+    - app-runner  # Tag for the runner to execute AWS CLI jobs
+  dependencies:
+    - deploy-infra
+  script:
+    # - echo "Fetching secret from AWS Secrets Manager..."
+    # - SECRET_NAME="my-database-secret" # Replace with your secret name
+    # - export DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id $SECRET_NAME --query SecretString --output text | jq -r .password)
+    # - echo "Secret fetched successfully."
+    - sleep 300 #Sleeping 5 minutes for the .bashrc to be ready. '.bashrc' will be ready by the end of userdata, however, the runner is configured few steps before. Hence the delay.
+    - shopt -s expand_aliases
+    - source ~/.bashrc
+    - echo "Creating Kubernetes secret..."
+    - kubectl create secret generic db-credentials --from-file=tf-outputs.json --dry-run=client -o yaml | kubectl apply -f -
+    - echo "Deploying the application..."
+    - kubectl apply -f main-challenge/Kubernetes/the-app-deployment.yaml
+    - kubectl port-forward service/my-app-service 8080:8080
+  only:
+    - main
