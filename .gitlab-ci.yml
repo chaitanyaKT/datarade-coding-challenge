@@ -1,33 +1,30 @@
 stages:
-  - collect-info
+  # - collect-info
   - deploy-infra
+  - install-helm
   - deploy-app
 
-variables:
-  TF_VAR_ENV: "production" # Example environment variable for Terraform
-
-# Stage 0: Collect info
-collect-info:
-  stage: collect-info
-  tags:
-    - master-runner
-  script:
-    - echo export TF_VAR_GITLAB_URL=$(sudo grep -E "^external_url" /etc/gitlab/gitlab.rb | cut -d "'" -f2) > .env
-    - echo export TF_VAR_REGISTRATION_TOKEN=$(sudo gitlab-rails runner "puts Gitlab::CurrentSettings.runners_registration_token") >> .env
-  artifacts:
-    paths:
-      - .env
-    expire_in: 1 hour
+# # Stage 0: Collect info
+# collect-info:
+#   stage: collect-info
+#   tags:
+#     - master-runner
+#   script:
+#     - echo export TF_VAR_GITLAB_URL=$(sudo grep -E "^external_url" /etc/gitlab/gitlab.rb | cut -d "'" -f2) > .env
+#     - echo export TF_VAR_REGISTRATION_TOKEN=$(sudo gitlab-rails runner "puts Gitlab::CurrentSettings.runners_registration_token") >> .env
+#   artifacts:
+#     paths:
+#       - .env
+#     expire_in: 1 hour
   
 # Stage 1: Deploy Infrastructure
 deploy-infra:
   stage: deploy-infra
   tags:
     - master-runner
-  dependencies:
-    - collect-info
   script:
-    - source .env
+    - export TF_VAR_GITLAB_URL=$(sudo grep -E "^external_url" /etc/gitlab/gitlab.rb | cut -d "'" -f2)
+    - export TF_VAR_REGISTRATION_TOKEN=$(sudo gitlab-rails runner "puts Gitlab::CurrentSettings.runners_registration_token")
     - cd main-challenge/Terraform
     - terraform init
     - terraform plan -out=tfplan
@@ -36,11 +33,26 @@ deploy-infra:
   artifacts:
     paths:
       - main-challenge/Terraform/tf-outputs.json
-    expire_in: 1 hour
+      - main-challenge/Terraform/terraform.tfstate
+      - main-challenge/Terraform/tfplan
+    expire_in: never
   only:
     - main
 
-# Stage 2: Get Secret from AWS
+# Stage 2: Installing helm on the app cluster
+install-helm:
+  stage: install-helm
+  tags:
+    - app-runner
+  dependencies:
+    - deploy-infra
+  script:
+    - sleep 180 # To get the installtion of minikube and helm completed.
+    - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    - helm repo add grafana https://grafana.github.io/helm-charts
+    - helm repo update
+
+# Stage 3: Deploy the app in the app cluster where minikube is already installed.
 deploy-app:
   stage: deploy-app
   tags:
@@ -48,17 +60,17 @@ deploy-app:
   dependencies:
     - deploy-infra
   script:
-    # - echo "Fetching secret from AWS Secrets Manager..."
-    # - SECRET_NAME="my-database-secret" # Replace with your secret name
-    # - export DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id $SECRET_NAME --query SecretString --output text | jq -r .password)
-    # - echo "Secret fetched successfully."
-    - sleep 300 #Sleeping 5 minutes for the .bashrc to be ready. '.bashrc' will be ready by the end of userdata, however, the runner is configured few steps before. Hence the delay.
-    - shopt -s expand_aliases
-    - source ~/.bashrc
     - echo "Creating Kubernetes secret..."
-    - kubectl create secret generic db-credentials --from-file=tf-outputs.json --dry-run=client -o yaml | kubectl apply -f -
+    - cat main-challenge/Terraform/tf-outputs.json > /dev/null
+    - minikube kubectl -- create secret generic db-credentials --from-file=main-challenge/Terraform/tf-outputs.json --dry-run=client -o yaml | minikube kubectl -- apply -f -
     - echo "Deploying the application..."
-    - kubectl apply -f main-challenge/Kubernetes/the-app-deployment.yaml
-    - kubectl port-forward service/my-app-service 8080:8080
+    - minikube kubectl -- apply -f main-challenge/Kubernetes/the-app-deployment.yaml
+    - minikube kubectl -- create namespace monitoring
+    - helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring -f main-challenge/Kubernetes/monitoring-alert-config.yml
+    - sleep 120
+    - nohup minikube kubectl -- proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 > /dev/null 2>&1 &
+    - echo "Port forwarding started..."
+    - sleep 10
+
   only:
     - main

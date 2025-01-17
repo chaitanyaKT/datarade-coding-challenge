@@ -19,6 +19,12 @@ spec:
         image: ctatisetti/sample-python-pgdb-app:latest # Replace with your public image
         ports:
         - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
         env:
         - name: DB_CREDS
           valueFrom:
@@ -39,5 +45,3 @@ spec:
   - port: 8080          # Exposed Service port
     targetPort: 5000    # Container's listening port
     protocol: TCP
-  type: NodePort
-

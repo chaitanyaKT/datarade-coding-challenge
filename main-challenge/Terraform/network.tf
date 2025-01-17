@@ -23,6 +23,57 @@ module "vpc" {
   }
 }
 
+module "alb" {
+  source = "terraform-aws-modules/alb/aws"
+
+  name    = "dr-cc-alb"
+  vpc_id  = module.vpc.vpc_id
+  subnets = module.vpc.public_subnets
+  enable_deletion_protection = false
+
+  # Security Group
+  security_group_ingress_rules = {
+    all_http = {
+      from_port   = 80
+      to_port     = 80
+      ip_protocol = "tcp"
+      description = "HTTP web traffic"
+      cidr_ipv4   = "0.0.0.0/0"
+    }
+  }
+  security_group_egress_rules = {
+    all = {
+      ip_protocol = "-1"
+      cidr_ipv4   = "10.0.0.0/16"
+    }
+  }
+
+  listeners = {
+    ex-http = {
+      port     = 80
+      protocol = "HTTP"
+      forward = {
+        target_group_key = "dr-cc-app-instance"
+      }
+    }
+  }
+
+  target_groups = {
+    dr-cc-app-instance  = {
+      name_prefix      = "dr-app"
+      protocol         = "HTTP"
+      port             = 8001
+      target_type      = "instance"
+      target_id        = module.minikube-app-cluster.id
+    }
+  }
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dr-cc-dev"
+  }
+}
+
 resource "aws_db_subnet_group" "dr_cc_db_sn" {
   name       = "dr_cc_db_sn"
   subnet_ids = module.vpc.database_subnets
@@ -42,7 +93,7 @@ module "public_sg" {
   vpc_id      = module.vpc.vpc_id
 
   ingress_cidr_blocks = ["0.0.0.0/0"]
-  ingress_rules       = ["ssh-tcp", "http-80-tcp"] # TODO: Remove ssh-tcp
+  ingress_rules       = ["ssh-tcp", "http-80-tcp"]
 
   # Outbound to private EC2s
   egress_with_cidr_blocks = [
@@ -70,10 +121,16 @@ module "app_sg" {
       source_security_group_id = module.public_sg.security_group_id
     },
     {
-      from_port                = 8080
-      to_port                  = 8080
+      from_port                = 8001
+      to_port                  = 8001
       protocol                 = "tcp"
       source_security_group_id = module.public_sg.security_group_id
+    },
+    {
+      from_port                = 8001
+      to_port                  = 8001
+      protocol                 = "tcp"
+      source_security_group_id = module.alb.security_group_id
     }
   ]
 
@@ -86,28 +143,6 @@ module "app_sg" {
     }
   ]
 }
-
-module "ci_sg" {
-  source = "terraform-aws-modules/security-group/aws"
-
-  name        = "dc-cc-pg-ec2-sg"
-  description = "Security group for bastion server"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress_cidr_blocks = ["0.0.0.0/0"]
-  ingress_rules       = ["ssh-tcp", "http-80-tcp"]
-
-  # Outbound to private EC2s
-  egress_with_cidr_blocks = [
-    {
-      from_port   = 0
-      to_port     = 0
-      protocol    = -1
-      cidr_blocks = "0.0.0.0/0"
-    }
-  ]
-}
-
 
 module "db_sg" {
   source = "terraform-aws-modules/security-group/aws"

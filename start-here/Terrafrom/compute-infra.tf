@@ -12,10 +12,27 @@ module "cicd-ec2" {
   user_data                   = filebase64("${path.module}/files/ci_userdata.sh")
   depends_on                  = [module.vpc]
 
+  enable_volume_tags = false
+  root_block_device = [{
+    delete_on_termination = true
+    volume_size           = 15
+    volume_type           = "gp2"
+
+    tags = {
+      Terraform   = "true"
+      Environment = "dr-cc-dev"
+    }
+  }]
+
   create_iam_instance_profile = true
   iam_role_name               = "dr-cc-cicd-ec2-profile-role"
   iam_role_policies = {
     "dr-cc-cicd-ec2-iam-role-policy" = aws_iam_policy.dr_cc_cicd_ec2_iam_policy.arn
+  }
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dr-cc-dev"
   }
 
 }
@@ -36,11 +53,15 @@ resource "aws_iam_policy" "dr_cc_cicd_ec2_iam_policy" {
         }
       ]
     }
-
   )
+
+  tags = {
+    Terraform   = "true"
+    Environment = "dr-cc-dev"
+  }
 }
 
 output "ci_server_pub_id" {
   description = "The public IP of the CI server."
-  value = module.cicd-ec2.public_ip
+  value       = module.cicd-ec2.public_ip
 }

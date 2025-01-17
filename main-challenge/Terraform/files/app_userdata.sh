@@ -25,8 +25,8 @@ sudo yum install -y gitlab-runner
 sudo curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
 sudo install minikube-linux-amd64 /usr/local/bin/minikube
 
+# Install and configure gitlab runner
 sudo echo "gitlab-runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/gitlab-sudo
-
 
 sudo gitlab-runner register --non-interactive \
   --url "${GITLAB_URL}" \
@@ -39,4 +39,4 @@ sudo gitlab-runner register --non-interactive \
 
 sudo usermod -aG docker gitlab-runner
 sudo su - gitlab-runner -c "minikube start --driver=docker"
-sudo su - gitlab-runner -c "echo \"alias kubectl='minikube kubectl -- '\" >> /home/gitlab-runner/.bashrc"
+sudo su - gitlab-runner -c "curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3; chmod 700 get_helm.sh; ./get_helm.sh"
